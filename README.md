@@ -1,109 +1,113 @@
-# LLaVA-ScienceQA LoRA Fine-Tuning & Deployment
+# LLaVA ScienceQA LoRA Fine-Tuning & SGLang Deployment
 
-基于 **LLaVA-v1.6-Vicuna-7B** 完成 ScienceQA 多模态视觉问答任务的 LoRA 微调、定量评估与推理部署。
-
-本项目重点记录一套可复现的 LLaVA 下游任务适配流程：
+End-to-end **LoRA fine-tuning, evaluation, and deployment pipeline** for **LLaVA-v1.6-Vicuna-7B** on the image-based subset of **ScienceQA**.
 
 ```text
 ScienceQA
-→ Data Processing
-→ LLaVA Format Conversion
-→ LoRA SFT
-→ Base / LoRA Evaluation
-→ LoRA Merge
-→ SGLang Serving
-→ OpenAI-compatible API
-→ Gradio Demo
+    ↓
+Data Conversion
+    ↓
+LLaVA-v1.6-Vicuna-7B
+    ↓
+LoRA Fine-Tuning
+    ↓
+Base vs. LoRA Evaluation
+    ↓
+LoRA Merge
+    ↓
+SGLang Inference Server
+    ↓
+OpenAI-Compatible API
+    ↓
+Gradio Web Demo
 ```
 
-最终在 **2017 条 ScienceQA Image Test** 上：
+### Result
 
-| Model                     |      Accuracy |
-| ------------------------- | ------------: |
-| LLaVA-v1.6-Vicuna-7B Base |        56.32% |
-| LoRA Fine-tuned           |    **70.10%** |
-| Improvement               | **+13.78 pp** |
+| Model                     |         Correct |   Accuracy |
+| ------------------------- | --------------: | ---------: |
+| LLaVA-v1.6-Vicuna-7B Base |     1136 / 2017 |     56.32% |
+| **Best ScienceQA LoRA**   | **1414 / 2017** | **70.10%** |
+
+**Absolute improvement: +13.78 percentage points**
 
 ---
 
-## 1. Repository Structure
+## Repository Structure
 
-本仓库不包含完整 LLaVA 源码、模型权重及 ScienceQA 数据集，仅保存本项目新增或修改的核心代码。
+This repository contains only the project-specific scripts and demo. The complete LLaVA source code, model weights, datasets, and checkpoints are not included.
 
 ```text
-llava-scienceqa-lora/
-│
-├── README.md
-│
-├── requirements.txt
-│
-│
+.
 ├── scripts/
-│   ├── prepare_scienceqa.py       # ScienceQA → LLaVA 格式
-│   ├── train_lora.sh              # LoRA 训练
-│   ├── evaluate_scienceqa.py      # Base / LoRA 评估
-│   ├── merge_lora.py              # LoRA Merge
-│   └── launch_sglang.sh           # SGLang Server
+│   ├── convert_scienceqa.py
+│   ├── eval_scienceqa_official.py
+│   ├── finetune_lora.sh
+│   └── merge_lora_weights.py
 │
-├── llava_patch/
-│   └── dataset.py                 # 本项目修改的 AnyRes 数据处理代码
-│
-├── demo/
-│   └── gradio_app.py              # Gradio Web Demo
-│
-└── results/
-    └── experiment_results.md
+├── gradio_llava_scienceqa.py
+├── 215927.png
+└── README.md
 ```
+
+| File                                 | Purpose                                                                                            |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `scripts/convert_scienceqa.py`       | Filter image-based ScienceQA samples, export images, and convert data to LLaVA conversation format |
+| `scripts/finetune_lora.sh`           | LoRA fine-tuning configuration and launch script                                                   |
+| `scripts/eval_scienceqa_official.py` | Controlled Base / LoRA evaluation on ScienceQA                                                     |
+| `scripts/merge_lora_weights.py`      | Merge the trained LoRA adapter into the LLaVA base model                                           |
+| `gradio_llava_scienceqa.py`          | Gradio frontend for the SGLang multimodal API                                                      |
+| `215927.png`                         | Gradio Web Demo screenshot                                                                         |
 
 ---
 
-## 2. Environment
+# 1. Environment
 
-训练环境：
+Training and deployment use **two separate Conda environments** to isolate the original LLaVA training dependencies from the newer SGLang inference stack.
+
+## 1.1 Training Environment — `llava`
+
+Used for:
 
 ```text
-GPU: RTX 4090 24GB
-OS: Linux
-
-Python: 3.11
-CUDA: 12.1
-PyTorch: 2.1.2
-Transformers: 4.37.2
-Accelerate: 0.21.0
-PEFT: 0.4.0
-DeepSpeed: 0.12.6
-FlashAttention2: 2.5.9.post1
+Data Processing
+LoRA Fine-Tuning
+Evaluation
+LoRA Merge
 ```
 
-基础模型：
+Verified environment:
+
+```text
+GPU             NVIDIA RTX 4090 24GB
+Python          3.11.15
+CUDA Toolkit    12.1 (V12.1.105)
+PyTorch         2.1.2+cu121
+Transformers    4.37.2
+Accelerate      0.21.0
+PEFT            0.4.0
+DeepSpeed       0.12.6
+FlashAttention  2.5.9.post1
+```
+
+Base model:
 
 ```text
 LLaVA-v1.6-Vicuna-7B
-CLIP ViT-L/14-336
 ```
 
-部署环境与训练环境独立：
+Vision tower:
 
 ```text
-SGLang: 0.5.18
-Transformers: 5.12.1
-GPU: RTX 4090 24GB
+openai/clip-vit-large-patch14-336
 ```
 
----
-
-## 3. Install LLaVA
-
-Clone official LLaVA:
+Clone and install the official LLaVA repository:
 
 ```bash
 git clone https://github.com/haotian-liu/LLaVA.git
 cd LLaVA
-```
 
-创建环境：
-
-```bash
 conda create -n llava python=3.11
 conda activate llava
 
@@ -112,42 +116,88 @@ pip install -e ".[train]"
 pip install flash-attn --no-build-isolation
 ```
 
-下载：
-
-```text
-LLaVA-v1.6-Vicuna-7B
-CLIP ViT-L/14-336
-ScienceQA
-```
-
-本仓库中的 `llava_patch/` 保存对官方 LLaVA 数据处理代码的修改，可将对应文件替换到 LLaVA 项目后进行训练。
+The scripts in this repository are designed to work with the official LLaVA implementation.
 
 ---
 
-## 4. ScienceQA Data Processing
+## 1.2 Deployment Environment — `sglang-deploy`
 
-ScienceQA 同时包含有图和无图问题。
+SGLang and Gradio run in a **separate Conda environment** to avoid dependency conflicts with the LLaVA training stack.
 
-本项目只保留：
-
-```python
-image != None
-```
-
-最终数据：
+Verified environment:
 
 ```text
-Train: 6218
-Test:  2017
+GPU             NVIDIA RTX 4090 24GB
+Python          3.12.13
+CUDA Toolkit    13.0 (V13.0.88)
+PyTorch         2.13.0+cu130
+Transformers    5.12.1
+SGLang          0.5.18
+Gradio          6.25.0
+Requests        2.34.2
 ```
 
-运行：
+The two environments are connected through the merged model:
+
+```text
+llava
+├── Data Processing
+├── LoRA Fine-Tuning
+├── Evaluation
+└── LoRA Merge
+        │
+        │ Merged Model
+        ▼
+sglang-deploy
+├── SGLang Inference Server
+├── OpenAI-Compatible API
+└── Gradio Web Demo
+```
+
+Create the deployment environment:
 
 ```bash
-python scripts/prepare_scienceqa.py
+conda create -n sglang-deploy python=3.12
+conda activate sglang-deploy
 ```
 
-转换后的 LLaVA 格式：
+---
+
+# 2. ScienceQA Data Preparation
+
+ScienceQA contains both image-based and text-only questions.
+
+Since this project focuses on multimodal VQA, only samples containing images are retained.
+
+```text
+Original Train: 12726
+Image Train:     6218
+
+Original Test:   4241
+Image Test:      2017
+```
+
+Run:
+
+```bash
+python scripts/convert_scienceqa.py
+```
+
+Processing pipeline:
+
+```text
+ScienceQA Parquet
+        ↓
+Filter image != None
+        ↓
+Export Image Bytes
+        ↓
+Question + Choices
+        ↓
+LLaVA Conversation Format
+```
+
+Example:
 
 ```json
 {
@@ -156,193 +206,182 @@ python scripts/prepare_scienceqa.py
   "conversations": [
     {
       "from": "human",
-      "value": "<image>\nQuestion...\nA...\nB...\nC...\nD..."
+      "value": "<image>\nWhich of these states is farthest north?\nA. West Virginia\nB. Louisiana\nC. Arizona\nD. Oklahoma"
     },
     {
       "from": "gpt",
-      "value": "A. Answer"
+      "value": "A. West Virginia"
     }
   ]
 }
 ```
 
-同时将 Hugging Face Parquet 中的 image bytes 导出为本地图片。
+Generated data:
+
+```text
+scienceqa_train_llava.json    6218 samples
+scienceqa_test_llava.json     2017 samples
+```
 
 ---
 
-## 5. LoRA Fine-Tuning
+# 3. LoRA Fine-Tuning
 
-训练策略：
+The project performs downstream LoRA adaptation on the pretrained LLaVA model without repeating Stage-1 visual-language alignment.
 
 ```text
 CLIP Vision Encoder     Frozen
+        ↓
 MM Projector            Frozen
-Vicuna LLM              LoRA
+        ↓
+Vicuna LLM
+ └── LoRA Adapters      Trainable
 ```
 
-LoRA target modules：
+LoRA target modules:
 
 ```text
-q_proj / k_proj / v_proj / o_proj
-gate_proj / up_proj / down_proj
+q_proj
+k_proj
+v_proj
+o_proj
+gate_proj
+up_proj
+down_proj
 ```
 
-最终配置：
+Best configuration:
 
 ```text
-LoRA r          = 64
-LoRA alpha      = 128
-LoRA dropout    = 0.05
-Learning rate   = 2e-5
-Warmup ratio    = 0.10
-Epoch           = 2
+LoRA Rank              64
+LoRA Alpha             128
+LoRA Dropout           0.05
+Learning Rate          2e-5
+Warmup Ratio           0.10
+Epochs                  2
 ```
 
-启动训练：
-
-```bash
-bash scripts/train_lora.sh
-```
-
-其中训练脚本包含完整的：
+Training also uses:
 
 ```text
-model path
-data path
-image folder
-vision tower
-LoRA config
-batch size
-gradient accumulation
-DeepSpeed
 BF16
-gradient checkpointing
+Gradient Accumulation
+Gradient Checkpointing
+FlashAttention 2
+DeepSpeed ZeRO-2
+```
+
+Configure the model and dataset paths in:
+
+```text
+scripts/finetune_lora.sh
+```
+
+Then launch training:
+
+```bash
+conda activate llava
+bash scripts/finetune_lora.sh
 ```
 
 ---
 
-## 6. LLaVA-v1.6 AnyRes
+# 4. Evaluation
 
-训练数据处理保持 LLaVA-v1.6 AnyRes pipeline：
+Evaluation is implemented in:
 
 ```text
-Image
-→ process_images()
-→ Multi-Patch
-→ image_sizes
-→ DataCollator
-→ LLaVA spatial_unpad
+scripts/eval_scienceqa_official.py
 ```
 
-Smoke Test：
+Base and LoRA models use the same:
 
 ```text
-Single Image:
-[5, 3, 336, 336]
-
-Batch:
-[2, 5, 3, 336, 336]
-```
-
-相关修改代码：
-
-```text
-llava_patch/dataset.py
-```
-
----
-
-## 7. Evaluation
-
-Base 与 LoRA 使用完全相同的：
-
-```text
-Test Set
-Image
-Prompt
-AnyRes Processing
+2017 Image Test Samples
+Images
+Prompts
+LLaVA-v1.6 AnyRes Processing
 Conversation Template
-Generation Config
-Answer Parser
+Generation Configuration
+Answer Parsing
 ```
 
-运行 Base：
-
-```bash
-python scripts/evaluate_scienceqa.py \
-    --model_path /path/to/llava-v1.6-vicuna-7b
-```
-
-运行 LoRA：
-
-```bash
-python scripts/evaluate_scienceqa.py \
-    --model_path /path/to/lora \
-    --model_base /path/to/llava-v1.6-vicuna-7b
-```
-
-结果：
+The only experimental variable is the model:
 
 ```text
-Base:
-1136 / 2017
-Accuracy = 56.3213%
+LLaVA Base
+    vs.
+LLaVA Base + ScienceQA LoRA
+```
 
-Best LoRA:
-1414 / 2017
-Accuracy = 70.1041%
+Run:
 
-Improvement:
+```bash
+conda activate llava
+python scripts/eval_scienceqa_official.py
+```
+
+### Evaluation Results
+
+```text
+Base
+Correct:   1136 / 2017
+Accuracy:  56.3213%
+
+Best LoRA
+Correct:   1414 / 2017
+Failed:    0
+Accuracy:  70.1041%
+
+Absolute Improvement:
 +13.78 percentage points
+
+Relative Improvement:
+~24.47%
 ```
 
 ---
 
-## 8. Merge LoRA
+# 5. Merge LoRA Weights
 
-训练完成后将：
+After fine-tuning, the LoRA adapter is merged into the original LLaVA model for deployment.
 
 ```text
-Base Model + LoRA Adapter
+LLaVA-v1.6-Vicuna-7B
+          +
+ScienceQA LoRA Adapter
+          ↓
+      LoRA Merge
+          ↓
+   Merged LLaVA Model
 ```
 
-合并为完整模型：
+Configure the model paths in:
+
+```text
+scripts/merge_lora_weights.py
+```
+
+Run:
 
 ```bash
-python scripts/merge_lora.py \
-    --model_base /path/to/llava-v1.6-vicuna-7b \
-    --model_path /path/to/lora \
-    --save_path /path/to/merged-model
+conda activate llava
+python scripts/merge_lora_weights.py
 ```
 
-得到：
-
-```text
-Merged LLaVA
-```
-
-用于后续 SGLang 部署。
+The resulting merged model is used directly by the SGLang deployment environment.
 
 ---
 
-## 9. SGLang Deployment
+# 6. SGLang Deployment
 
-创建独立部署环境并安装：
+Switch from the training environment to the independent deployment environment:
 
 ```bash
-conda create -n sglang-deploy python=3.11
 conda activate sglang-deploy
-
-pip install "sglang[all]"
 ```
 
-启动服务：
-
-```bash
-bash scripts/launch_sglang.sh
-```
-
-核心启动方式：
+Launch the merged LLaVA model with SGLang:
 
 ```bash
 python -m sglang.launch_server \
@@ -353,73 +392,125 @@ python -m sglang.launch_server \
     --port 30000
 ```
 
-检查服务：
+Check whether the inference server is running:
 
 ```bash
 curl http://127.0.0.1:30000/v1/models
 ```
 
-推理接口：
+The deployed model exposes an OpenAI-compatible multimodal endpoint:
 
 ```text
 POST /v1/chat/completions
+```
+
+Inference pipeline:
+
+```text
+Image + Prompt
+      ↓
+OpenAI-Compatible Request
+      ↓
+SGLang :30000
+      ↓
+CLIP Vision Encoder
+      ↓
+MM Projector
+      ↓
+Vicuna LLM
+      ↓
+Response
 ```
 
 ---
 
-## 10. Gradio Demo
+# 7. Gradio Web Demo
 
-Gradio 作为前端调用 SGLang API：
+The Gradio frontend is implemented in:
 
 ```text
-Image + Question
-       ↓
-     Gradio
-       ↓
-Base64 Image
-       ↓
-POST /v1/chat/completions
-       ↓
-     SGLang
-       ↓
-      LLaVA
-       ↓
-     Answer
+gradio_llava_scienceqa.py
 ```
 
-启动：
+Gradio does **not** load the LLaVA model directly. It sends image and text requests to the SGLang inference server.
+
+```text
+Browser
+   ↓
+Gradio :6006
+   ↓
+Image → Base64
+   ↓
+POST /v1/chat/completions
+   ↓
+SGLang :30000
+   ↓
+LLaVA
+   ↓
+Response
+```
+
+Make sure the SGLang server is running first, then launch Gradio:
 
 ```bash
-python demo/gradio_app.py
+conda activate sglang-deploy
+python gradio_llava_scienceqa.py
 ```
 
-默认：
+Default services:
 
 ```text
-SGLang: http://127.0.0.1:30000
-Gradio: http://0.0.0.0:6006
+SGLang API
+http://127.0.0.1:30000
+
+Gradio
+0.0.0.0:6006
 ```
+
+### Demo
+
+![Gradio Web Demo](./215927.png)
 
 ---
 
-## 11. Final Result
+# Final Workflow
 
 ```text
-ScienceQA Image Train: 6218
-ScienceQA Image Test:  2017
-
-LLaVA-v1.6 Base:       56.32%
-Best LoRA:             70.10%
-Absolute Improvement:  +13.78 pp
+                    llava
+                      │
+                      ▼
+              ScienceQA Dataset
+                      │
+                      ▼
+           convert_scienceqa.py
+                      │
+                      ▼
+             finetune_lora.sh
+                      │
+                      ▼
+      eval_scienceqa_official.py
+                      │
+                      ▼
+       merge_lora_weights.py
+                      │
+                Merged Model
+                      │
+──────────────────────┼──────────────────────
+                      │
+                      ▼
+                sglang-deploy
+                      │
+                      ▼
+                SGLang :30000
+                      │
+                      ▼
+          OpenAI-Compatible API
+                      │
+                      ▼
+       gradio_llava_scienceqa.py
+                      │
+                      ▼
+               Gradio :6006
 ```
 
-完整流程：
-
-```text
-Data Processing
-→ LoRA Fine-Tuning
-→ Controlled Evaluation
-→ Model Merge
-→ SGLang API
-→ Gradio Demo
-```
+**Final ScienceQA Image Test Accuracy: 56.32% → 70.10% (+13.78 pp)**
