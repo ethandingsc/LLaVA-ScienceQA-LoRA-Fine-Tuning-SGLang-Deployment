@@ -6,7 +6,6 @@ An end-to-end multimodal visual question answering project based on **LLaVA-v1.6
 
 * Fine-tuned **LLaVA-v1.6-Vicuna-7B** on **6,218 image-based ScienceQA training samples** using LoRA.
 * Improved accuracy from **56.32% to 70.10%** on **2,017 image-based test samples**, achieving a **+13.78 percentage-point improvement**.
-* Implemented the **LLaVA-v1.6 AnyRes** image processing pipeline with multi-patch inputs and original image-size propagation.
 * Conducted controlled **Base vs. LoRA** evaluation using identical test data, prompts, image preprocessing, decoding configuration, and answer parsing.
 * Explored LoRA rank, alpha, learning rate, warmup ratio, gradient accumulation, and training epochs.
 * Merged the LoRA adapter into the base model and deployed the resulting model using **SGLang**.
