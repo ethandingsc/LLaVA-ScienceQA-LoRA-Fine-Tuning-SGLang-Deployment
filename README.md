@@ -11,6 +11,7 @@ The project covers ScienceQA data conversion, parameter-efficient LoRA fine-tuni
 - Evaluated both models under an identical pipeline, including prompts, AnyRes image processing, generation settings, and answer parsing.
 - Deployed the merged model with **SGLang** and exposed multimodal inference through an **OpenAI-compatible API**.
 - Built a lightweight **Gradio** client for image upload, question input, and model responses.
+- RTX 4090 24G
 
 ## Results
 
